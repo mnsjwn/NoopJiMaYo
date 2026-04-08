@@ -32,24 +32,13 @@ const App = () => {
   const timerRef = useRef(null);
   const audioRef = useRef(null);
 
-  /**
-   * Vercel/Vite 환경 변수 접근 방식 수정
-   * 'import.meta' 가 지원되지 않는 환경을 위해 안전한 접근 방식을 사용합니다.
-   */
   const getApiKey = () => {
     try {
-      // 1. Vite/Vercel 환경 변수 (안전한 접근 시도)
-      // 컴파일 에러를 방지하기 위해 대괄호 표기법을 사용하거나 전역 객체를 확인합니다.
-      const env = (typeof process !== 'undefined' && process.env) || {};
       const viteEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
-      
+      const env = (typeof process !== 'undefined' && process.env) || {};
       const envKey = viteEnv.VITE_GROQ_API_KEY || env.VITE_GROQ_API_KEY;
       if (envKey) return envKey;
-    } catch (e) {
-      // 환경 변수 접근 중 에러 발생 시 무시
-    }
-    
-    // 2. 로컬 테스트용 (콘솔이나 프롬프트로 입력 가능하게 처리)
+    } catch (e) {}
     return localStorage.getItem('TEMP_GROQ_KEY') || "";
   };
 
@@ -137,7 +126,7 @@ const App = () => {
     if (!base64Image) return;
 
     if (!GROQ_API_KEY) {
-      const manualKey = prompt("API 키가 설정되지 않았습니다. Vercel 설정에서 VITE_GROQ_API_KEY를 추가하거나 여기에 입력하세요:");
+      const manualKey = prompt("API 키가 설정되지 않았습니다. 여기에 입력하세요:");
       if (manualKey) {
         localStorage.setItem('TEMP_GROQ_KEY', manualKey);
         window.location.reload();
@@ -146,7 +135,7 @@ const App = () => {
     }
 
     setStep('ANALYZING');
-    
+
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -155,49 +144,65 @@ const App = () => {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "llama-3.2-11b-vision-preview",
+          model: "meta-llama/llama-4-scout-17b-16e-instruct",
           messages: [
             {
               role: "user",
               content: [
-                { 
-                  type: "text", 
-                  text: `Analyze this meal image for a person with GASTRITIS or REFLUX ESOPHAGITIS. 
-                  Return ONLY a JSON object in Korean with: mealName, detectedItems (array), stimulatingFactors (array), baseTimeMinutes (number), reason. 
-                  IMPORTANT: If user is normal, base 60 mins. If condition selected, 150 mins.` 
+                {
+                  type: "text",
+                  text: `이 식사 사진을 분석해줘. 반드시 아래 형식의 JSON만 반환해. 다른 말은 절대 하지 마. 마크다운 코드블록도 쓰지 마.
+{
+  "mealName": "음식 이름",
+  "detectedItems": ["재료1", "재료2"],
+  "stimulatingFactors": ["자극 요소1"],
+  "baseTimeMinutes": 90,
+  "reason": "이유 설명"
+}
+위염/역류성 식도염 환자라면 baseTimeMinutes는 최소 150, 일반인은 최소 60으로 설정해.`
                 },
-                { 
-                  type: "image_url", 
-                  image_url: { url: `data:image/jpeg;base64,${base64Image}` } 
+                {
+                  type: "image_url",
+                  image_url: { url: `data:image/jpeg;base64,${base64Image}` }
                 }
               ]
             }
           ],
-          response_format: { type: "json_object" },
           temperature: 0.1
         })
       });
 
-      if (!response.ok) throw new Error("API Error");
-      
+      if (!response.ok) {
+        const errBody = await response.json();
+        console.error("Groq API Error:", errBody);
+        throw new Error(errBody?.error?.message || `HTTP ${response.status}`);
+      }
+
       const result = await response.json();
-      const aiData = JSON.parse(result.choices[0].message.content);
-      
-      let baseMinutes = hasCondition ? 150 : 60; 
+      const raw = result.choices[0].message.content;
+
+      // JSON 블록 안전하게 추출 (```json ... ``` 감싸진 경우 대비)
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("JSON 파싱 실패: " + raw);
+      const aiData = JSON.parse(jsonMatch[0]);
+
+      let baseMinutes = hasCondition ? 150 : 60;
       let finalMinutes = Math.max(aiData.baseTimeMinutes || 60, baseMinutes);
       let finalSeconds = finalMinutes * 60;
-      
+
       setAnalysisResult({ ...aiData, calculatedTime: finalSeconds });
       setTimeLeft(finalSeconds);
       setStep('RESULT');
-      startTimer(finalSeconds); 
+      startTimer(finalSeconds);
+
     } catch (error) {
-      const fallbackSeconds = hasCondition ? 9000 : 3600; 
+      console.error("분석 오류:", error);
+      const fallbackSeconds = hasCondition ? 9000 : 3600;
       setAnalysisResult({
         mealName: "식사 분석 완료",
-        stimulatingFactors: ["분석 지연 (기본값 설정)"],
+        stimulatingFactors: ["분석 오류 (기본값 설정)"],
         calculatedTime: fallbackSeconds,
-        reason: "안전한 소화를 위해 기본 대기 시간을 설정합니다."
+        reason: `오류: ${error.message} — 안전한 소화를 위해 기본 대기 시간을 설정합니다.`
       });
       setTimeLeft(fallbackSeconds);
       setStep('RESULT');
