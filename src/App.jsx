@@ -37,6 +37,7 @@ const App = () => {
 
   const [timeLeft, setTimeLeft] = useState(0);
   const [isActive, setIsActive] = useState(false);
+  const [endTimeDisplay, setEndTimeDisplay] = useState('');
   const [adminClickCount, setAdminClickCount] = useState(0);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
@@ -150,26 +151,45 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (isActive && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        const savedEndTime = localStorage.getItem('noopjimayo_endtime');
-        if (savedEndTime) {
-          const remaining = Math.floor((parseInt(savedEndTime) - Date.now()) / 1000);
-          if (remaining <= 0) {
-            finishTimer();
-          } else {
-            setTimeLeft(remaining);
-          }
+    if (!isActive) return;
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      const savedEndTime = localStorage.getItem('noopjimayo_endtime');
+      if (!savedEndTime) return;
+      const remaining = Math.floor((parseInt(savedEndTime) - Date.now()) / 1000);
+      if (remaining <= 0) {
+        clearInterval(timerRef.current);
+        setIsActive(false);
+        setTimeLeft(0);
+        localStorage.removeItem('noopjimayo_endtime');
+        if (audioRef.current) {
+          audioRef.current.play().catch(e => console.log("Audio play failed:", e));
         }
-      }, 1000);
-    }
+        if ("vibrate" in navigator) {
+          navigator.vibrate([300, 200, 300, 200, 300]);
+        }
+        if (Notification.permission === "granted") {
+          new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+        }
+        setStep('FINISHED');
+      } else {
+        setTimeLeft(remaining);
+      }
+    }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [isActive, timeLeft]);
+  }, [isActive]);
 
   const startTimer = (seconds) => {
     const endTime = Date.now() + seconds * 1000;
     localStorage.setItem('noopjimayo_endtime', endTime.toString());
     setIsActive(true);
+    // 종료 시각 표시용
+    const endDate = new Date(endTime);
+    const h = endDate.getHours();
+    const m = endDate.getMinutes().toString().padStart(2, '0');
+    const ampm = h >= 12 ? '오후' : '오전';
+    const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    setEndTimeDisplay(`${ampm} ${displayH}시 ${m}분`);
   };
 
   const finishTimer = () => {
@@ -177,8 +197,13 @@ const App = () => {
     setTimeLeft(0);
     clearInterval(timerRef.current);
     localStorage.removeItem('noopjimayo_endtime');
+    // 소리
     if (audioRef.current) {
       audioRef.current.play().catch(e => console.log("Audio play failed:", e));
+    }
+    // 진동 (모바일 대응) — 0.3초 진동 3번
+    if ("vibrate" in navigator) {
+      navigator.vibrate([300, 200, 300, 200, 300]);
     }
     sendNotification();
     setStep('FINISHED');
@@ -456,6 +481,17 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
             >
               분석 및 타이머 시작
             </button>
+            <button
+              onClick={() => {
+                setAnalysisResult({ mealName: "테스트", detectedItems: [], stimulatingFactors: [], calculatedTime: 10, bonusMinutes: 0, reason: "테스트용 10초 타이머" });
+                setTimeLeft(10);
+                setStep('RESULT');
+                startTimer(10);
+              }}
+              className="w-full py-3 rounded-[2rem] text-base text-slate-300 transition-all active:scale-95 mt-1"
+            >
+              테스트 (10초)
+            </button>
           </div>
         )}
 
@@ -551,10 +587,15 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
               <div className="flex flex-col items-center justify-center py-4">
                 <div 
                   onClick={handleTimerClick}
-                  className="text-6xl text-slate-900 mb-8 tracking-tighter font-black cursor-pointer active:scale-95 transition-transform"
+                  className="text-6xl text-slate-900 mb-2 tracking-tighter font-black cursor-pointer active:scale-95 transition-transform"
                 >
                   {formatTime(timeLeft)}
                 </div>
+                {endTimeDisplay ? (
+                  <p className="text-slate-400 text-base font-bold mb-6">🕐 {endTimeDisplay}에 누워도 돼요</p>
+                ) : (
+                  <div className="mb-6" />
+                )}
                 <div className="w-full bg-slate-100 rounded-full h-3 mb-8 overflow-hidden">
                   <div 
                     className="bg-blue-600 h-full transition-all duration-1000"
