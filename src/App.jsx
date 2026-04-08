@@ -112,17 +112,45 @@ const App = () => {
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImage(reader.result);
+    if (!file) return;
+
+    const supportedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const needsConversion = !supportedTypes.includes(file.type); // HEIC, AVIF 등
+
+    const convertToJpeg = (src) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          resolve(jpegDataUrl);
+        };
+        img.src = src;
+      });
+    };
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const originalDataUrl = reader.result;
+      setImage(originalDataUrl);
+
+      if (needsConversion) {
+        const jpegDataUrl = await convertToJpeg(originalDataUrl);
         setBase64Image({
-          data: reader.result.split(',')[1],
-          mimeType: file.type || 'image/jpeg'
+          data: jpegDataUrl.split(',')[1],
+          mimeType: 'image/jpeg'
         });
-      };
-      reader.readAsDataURL(file);
-    }
+      } else {
+        setBase64Image({
+          data: originalDataUrl.split(',')[1],
+          mimeType: file.type
+        });
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const startAnalysis = async () => {
