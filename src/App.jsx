@@ -66,9 +66,7 @@ const App = () => {
 
     audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
     
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
+    // 알림 권한은 사용자 제스처 시점(앱 시작 버튼)에 요청
 
     const savedEndTime = localStorage.getItem('noopjimayo_endtime');
     if (savedEndTime) {
@@ -264,11 +262,6 @@ const App = () => {
       return;
     }
 
-    // 모바일은 사용자 제스처(버튼 클릭) 시점에 권한 요청해야 작동함
-    if ("Notification" in window && Notification.permission === "default") {
-      await Notification.requestPermission();
-    }
-
     setStep('ANALYZING');
 
     try {
@@ -369,10 +362,23 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
       setAdminPassword('');
       finishTimer();
     } else if (adminPassword === '0000') {
-      // 타이머 1분으로 줄이기
       const newEndTime = Date.now() + 60 * 1000;
       localStorage.setItem('noopjimayo_endtime', newEndTime.toString());
       setTimeLeft(60);
+      const endDate = new Date(newEndTime);
+      const h = endDate.getHours();
+      const m = endDate.getMinutes().toString().padStart(2, '0');
+      const ampm = h >= 12 ? '오후' : '오전';
+      const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      setEndTimeDisplay(`${ampm} ${displayH}시 ${m}분`);
+      setShowAdminModal(false);
+      setAdminPassword('');
+    } else if (adminPassword === '1111') {
+      // 테스트용 10초
+      const newEndTime = Date.now() + 10 * 1000;
+      localStorage.setItem('noopjimayo_endtime', newEndTime.toString());
+      setTimeLeft(10);
+      setEndTimeDisplay('');
       setShowAdminModal(false);
       setAdminPassword('');
     } else {
@@ -433,7 +439,12 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
               <p className="text-slate-400 text-xl font-bold italic">"소화 안심 타이머"</p>
             </div>
             <button 
-              onClick={() => setStep('UPLOAD')}
+              onClick={async () => {
+                if ("Notification" in window && Notification.permission === "default") {
+                  await Notification.requestPermission();
+                }
+                setStep('UPLOAD');
+              }}
               className="w-full bg-blue-600 text-white text-2xl py-6 rounded-[2rem] shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 transition-all active:scale-95"
             >
               앱 시작하기 <ChevronRight size={28} strokeWidth={3} />
@@ -481,17 +492,7 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
             >
               분석 및 타이머 시작
             </button>
-            <button
-              onClick={() => {
-                setAnalysisResult({ mealName: "테스트", detectedItems: [], stimulatingFactors: [], calculatedTime: 10, bonusMinutes: 0, reason: "테스트용 10초 타이머" });
-                setTimeLeft(10);
-                setStep('RESULT');
-                startTimer(10);
-              }}
-              className="w-full py-3 rounded-[2rem] text-base text-slate-300 transition-all active:scale-95 mt-1"
-            >
-              테스트 (10초)
-            </button>
+
           </div>
         )}
 
