@@ -116,7 +116,10 @@ const App = () => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result);
-        setBase64Image(reader.result.split(',')[1]);
+        setBase64Image({
+          data: reader.result.split(',')[1],
+          mimeType: file.type || 'image/jpeg'
+        });
       };
       reader.readAsDataURL(file);
     }
@@ -163,7 +166,7 @@ const App = () => {
                 },
                 {
                   type: "image_url",
-                  image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+                  image_url: { url: `data:${base64Image.mimeType};base64,${base64Image.data}` }
                 }
               ]
             }
