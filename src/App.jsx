@@ -44,6 +44,7 @@ const App = () => {
   
   const timerRef = useRef(null);
   const audioRef = useRef(null);
+  const audioContextRef = useRef(null);
   const analyzingTimerRef = useRef(null);
 
   const getApiKey = () => {
@@ -65,6 +66,11 @@ const App = () => {
     document.head.appendChild(link);
 
     audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+
+    // Web Audio API 컨텍스트 생성 (iOS 대응)
+    try {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) {}
     
     // 알림 권한은 사용자 제스처 시점(앱 시작 버튼)에 요청
 
@@ -160,9 +166,7 @@ const App = () => {
         setIsActive(false);
         setTimeLeft(0);
         localStorage.removeItem('noopjimayo_endtime');
-        if (audioRef.current) {
-          audioRef.current.play().catch(e => console.log("Audio play failed:", e));
-        }
+        playAlarm();
         if ("vibrate" in navigator) {
           navigator.vibrate([300, 200, 300, 200, 300]);
         }
@@ -205,6 +209,34 @@ const App = () => {
     }
     sendNotification();
     setStep('FINISHED');
+  };
+
+  const playAlarm = () => {
+    // Web Audio API로 비프음 생성 (iOS 포함 대부분 작동)
+    try {
+      const ctx = audioContextRef.current || new (window.AudioContext || window.webkitAudioContext)();
+      const playBeep = (startTime, freq = 880, duration = 0.3) => {
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        oscillator.frequency.value = freq;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.8, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+      };
+      const now = ctx.currentTime;
+      playBeep(now, 880, 0.3);
+      playBeep(now + 0.4, 880, 0.3);
+      playBeep(now + 0.8, 1100, 0.5);
+    } catch(e) {
+      // fallback: 기존 Audio 태그
+      if (audioRef.current) {
+        audioRef.current.play().catch(err => console.log("Audio play failed:", err));
+      }
+    }
   };
 
   const sendNotification = () => {
@@ -442,6 +474,16 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
               onClick={async () => {
                 if ("Notification" in window && Notification.permission === "default") {
                   await Notification.requestPermission();
+                }
+                // iOS AudioContext unlock — 반드시 사용자 제스처 시점에 resume
+                if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+                  await audioContextRef.current.resume();
+                }
+                // iOS 오디오 unlock용 무음 재생
+                if (audioRef.current) {
+                  audioRef.current.muted = true;
+                  audioRef.current.play().catch(() => {});
+                  setTimeout(() => { if (audioRef.current) audioRef.current.muted = false; }, 100);
                 }
                 setStep('UPLOAD');
               }}
