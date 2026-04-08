@@ -9,6 +9,13 @@ import {
   ShieldCheck
 } from 'lucide-react';
 
+const ANALYZING_STEPS = [
+  "사진을 인식하고 있습니다...",
+  "음식 종류를 파악하고 있습니다...",
+  "자극 요소를 분석하고 있습니다...",
+  "소화 시간을 계산하고 있습니다...",
+];
+
 const App = () => {
   const [step, setStep] = useState('HOME');
   const [hasCondition, setHasCondition] = useState(false); 
@@ -23,6 +30,11 @@ const App = () => {
     reason: ""
   });
 
+  // 분석중 화면용 상태
+  const [analyzingStepIndex, setAnalyzingStepIndex] = useState(0);
+  const [revealedFactors, setRevealedFactors] = useState([]);
+  const [pendingResult, setPendingResult] = useState(null);
+
   const [timeLeft, setTimeLeft] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [adminClickCount, setAdminClickCount] = useState(0);
@@ -31,6 +43,7 @@ const App = () => {
   
   const timerRef = useRef(null);
   const audioRef = useRef(null);
+  const analyzingTimerRef = useRef(null);
 
   const getApiKey = () => {
     try {
@@ -66,6 +79,75 @@ const App = () => {
       }
     }
   }, []);
+
+  // 분석중 화면 — 단계 메시지 순환 + 결과 오면 자극 요소 하나씩 공개
+  useEffect(() => {
+    if (step !== 'ANALYZING') {
+      clearInterval(analyzingTimerRef.current);
+      return;
+    }
+
+    setAnalyzingStepIndex(0);
+    setRevealedFactors([]);
+
+    let stepIdx = 0;
+    analyzingTimerRef.current = setInterval(() => {
+      stepIdx = (stepIdx + 1) % ANALYZING_STEPS.length;
+      setAnalyzingStepIndex(stepIdx);
+    }, 1800);
+
+    return () => clearInterval(analyzingTimerRef.current);
+  }, [step]);
+
+  // API 결과 도착 후 자극 요소 하나씩 공개 → 다 공개되면 RESULT로 이동
+  useEffect(() => {
+    if (!pendingResult) return;
+
+    const factors = pendingResult.stimulatingFactors || [];
+    if (factors.length === 0) {
+      // 자극 요소 없으면 잠깐 대기 후 바로 이동
+      const t = setTimeout(() => {
+        applyResultAndMove(pendingResult);
+        setPendingResult(null);
+      }, 1200);
+      return () => clearTimeout(t);
+    }
+
+    // 자극 요소 하나씩 800ms 간격으로 공개
+    let i = 0;
+    const reveal = setInterval(() => {
+      i++;
+      setRevealedFactors(factors.slice(0, i));
+      if (i >= factors.length) {
+        clearInterval(reveal);
+        // 마지막 요소 공개 후 1.5초 더 보여주고 이동
+        setTimeout(() => {
+          applyResultAndMove(pendingResult);
+          setPendingResult(null);
+        }, 1500);
+      }
+    }, 800);
+
+    return () => clearInterval(reveal);
+  }, [pendingResult]);
+
+  const applyResultAndMove = (aiData) => {
+    let baseMinutes = hasCondition ? 150 : 60;
+    let aiMinutes = aiData.baseTimeMinutes || baseMinutes;
+    
+    // 자극 요소 개수마다 10분 추가 (AI가 늘리는 느낌)
+    const factorCount = (aiData.stimulatingFactors || []).length;
+    const bonusMinutes = factorCount * 10;
+    
+    let finalMinutes = Math.max(aiMinutes, baseMinutes) + bonusMinutes;
+    let finalSeconds = finalMinutes * 60;
+
+    setAnalysisResult({ ...aiData, calculatedTime: finalSeconds, bonusMinutes });
+    setTimeLeft(finalSeconds);
+    clearInterval(analyzingTimerRef.current);
+    setStep('RESULT');
+    startTimer(finalSeconds);
+  };
 
   useEffect(() => {
     if (isActive && timeLeft > 0) {
@@ -115,7 +197,7 @@ const App = () => {
     if (!file) return;
 
     const supportedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    const needsConversion = !supportedTypes.includes(file.type); // HEIC, AVIF 등
+    const needsConversion = !supportedTypes.includes(file.type);
 
     const convertToJpeg = (src) => {
       return new Promise((resolve) => {
@@ -125,8 +207,7 @@ const App = () => {
           canvas.width = img.width;
           canvas.height = img.height;
           canvas.getContext('2d').drawImage(img, 0, 0);
-          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-          resolve(jpegDataUrl);
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
         };
         img.src = src;
       });
@@ -136,18 +217,11 @@ const App = () => {
     reader.onloadend = async () => {
       const originalDataUrl = reader.result;
       setImage(originalDataUrl);
-
       if (needsConversion) {
         const jpegDataUrl = await convertToJpeg(originalDataUrl);
-        setBase64Image({
-          data: jpegDataUrl.split(',')[1],
-          mimeType: 'image/jpeg'
-        });
+        setBase64Image({ data: jpegDataUrl.split(',')[1], mimeType: 'image/jpeg' });
       } else {
-        setBase64Image({
-          data: originalDataUrl.split(',')[1],
-          mimeType: file.type
-        });
+        setBase64Image({ data: originalDataUrl.split(',')[1], mimeType: file.type });
       }
     };
     reader.readAsDataURL(file);
@@ -186,11 +260,12 @@ const App = () => {
 {
   "mealName": "음식 이름",
   "detectedItems": ["재료1", "재료2"],
-  "stimulatingFactors": ["자극 요소1"],
+  "stimulatingFactors": ["자극 요소1", "자극 요소2"],
   "baseTimeMinutes": 90,
   "reason": "이유 설명"
 }
-위염/역류성 식도염 환자라면 baseTimeMinutes는 최소 150, 일반인은 최소 60으로 설정해.`
+자극 요소는 위장에 부담되는 구체적인 재료/성분명으로 작성해. 없으면 빈 배열.
+위염/역류성 식도염 환자라면 baseTimeMinutes는 최소 150, 일반인은 최소 60.`
                 },
                 {
                   type: "image_url",
@@ -213,28 +288,21 @@ const App = () => {
 
       const result = await response.json();
       const raw = result.choices[0].message.content;
-
-      // JSON 블록 안전하게 추출 (```json ... ``` 감싸진 경우 대비)
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("JSON 파싱 실패: " + raw);
       const aiData = JSON.parse(jsonMatch[0]);
 
-      let baseMinutes = hasCondition ? 150 : 60;
-      let finalMinutes = Math.max(aiData.baseTimeMinutes || 60, baseMinutes);
-      let finalSeconds = finalMinutes * 60;
-
-      setAnalysisResult({ ...aiData, calculatedTime: finalSeconds });
-      setTimeLeft(finalSeconds);
-      setStep('RESULT');
-      startTimer(finalSeconds);
+      // 바로 이동하지 않고 pendingResult에 저장 → useEffect가 자극 요소 공개 후 이동
+      setPendingResult(aiData);
 
     } catch (error) {
       console.error("분석 오류:", error);
       const fallbackSeconds = hasCondition ? 9000 : 3600;
       setAnalysisResult({
         mealName: "식사 분석 완료",
-        stimulatingFactors: ["분석 오류 (기본값 설정)"],
+        stimulatingFactors: [],
         calculatedTime: fallbackSeconds,
+        bonusMinutes: 0,
         reason: `오류: ${error.message} — 안전한 소화를 위해 기본 대기 시간을 설정합니다.`
       });
       setTimeLeft(fallbackSeconds);
@@ -277,8 +345,11 @@ const App = () => {
     setIsActive(false);
     setImage(null);
     setBase64Image(null);
+    setPendingResult(null);
+    setRevealedFactors([]);
     localStorage.removeItem('noopjimayo_endtime');
     if (timerRef.current) clearInterval(timerRef.current);
+    if (analyzingTimerRef.current) clearInterval(analyzingTimerRef.current);
   };
 
   return (
@@ -366,13 +437,42 @@ const App = () => {
         )}
 
         {step === 'ANALYZING' && (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white">
-            <div className="w-48 h-48 bg-blue-50 rounded-full flex items-center justify-center mb-10 animate-pulse">
-                <BellRing size={80} className="text-blue-500" />
+          <div className="flex-1 flex flex-col p-8 bg-white">
+            {/* 상단 스피너 + 단계 메시지 */}
+            <div className="flex flex-col items-center pt-10 pb-8">
+              <div className="w-36 h-36 bg-blue-50 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                <BellRing size={60} className="text-blue-500" />
+              </div>
+              <div className="w-10 h-10 border-[5px] border-slate-100 border-t-blue-600 rounded-full animate-spin mb-5"></div>
+              <h2 className="text-2xl text-slate-900 font-black tracking-wide text-center transition-all duration-500">
+                {ANALYZING_STEPS[analyzingStepIndex]}
+              </h2>
             </div>
-            <div className="w-12 h-12 border-[6px] border-slate-100 border-t-blue-600 rounded-full animate-spin mb-6"></div>
-            <h2 className="text-3xl text-slate-900 tracking-widest font-black">AI가 영양 분석 중...</h2>
-            <p className="text-slate-400 mt-4">식단 내 자극 요소를 분석하고 있습니다.</p>
+
+            {/* 자극 요소 등장 영역 */}
+            <div className="flex-1 bg-slate-50 rounded-[2rem] p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle size={18} className="text-amber-500" />
+                <p className="text-slate-500 text-base font-bold">발견된 자극 요소</p>
+              </div>
+
+              {revealedFactors.length === 0 ? (
+                <p className="text-slate-300 text-base">분석 중...</p>
+              ) : (
+                <ul className="space-y-3">
+                  {revealedFactors.map((factor, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-3 animate-[fadeIn_0.4s_ease]"
+                      style={{ animationFillMode: 'both' }}
+                    >
+                      <span className="w-3 h-3 rounded-full bg-red-500 shrink-0 shadow-sm shadow-red-300"></span>
+                      <span className="text-slate-700 text-lg font-bold">{factor}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
 
@@ -382,36 +482,61 @@ const App = () => {
               <h2 className="text-3xl text-slate-900 font-black tracking-tight">소화 안심 타이머</h2>
             </div>
             <div className="px-8 flex-1">
-              <div className="bg-slate-50 rounded-[2.5rem] p-8 mb-8 relative overflow-hidden shadow-sm">
-                <div className="flex justify-between items-start mb-4">
-                    <h3 className="text-3xl text-slate-900 font-black leading-tight">{analysisResult.mealName || "분석 완료"}</h3>
-                    <span className={`px-4 py-1 rounded-full text-sm font-bold ${hasCondition ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                        {hasCondition ? '질환 모드' : '일반 모드'}
-                    </span>
+              <div className="bg-slate-50 rounded-[2.5rem] p-8 mb-6 shadow-sm">
+                <div className="flex justify-between items-start mb-5">
+                  <h3 className="text-2xl text-slate-900 font-black leading-tight">{analysisResult.mealName || "분석 완료"}</h3>
+                  <span className={`px-4 py-1 rounded-full text-sm font-bold shrink-0 ml-2 ${hasCondition ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                    {hasCondition ? '질환 모드' : '일반 모드'}
+                  </span>
                 </div>
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className="text-amber-500" size={20} />
-                    <p className="text-lg text-slate-700">{analysisResult.stimulatingFactors?.length > 0 ? analysisResult.stimulatingFactors.join(', ') : '자극 요소 없음'}</p>
+
+                {/* 자극 요소 빨간점 리스트 */}
+                {analysisResult.stimulatingFactors?.length > 0 ? (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertTriangle size={16} className="text-amber-500" />
+                      <p className="text-slate-500 text-sm font-bold">자극 요소</p>
+                    </div>
+                    <ul className="space-y-2">
+                      {analysisResult.stimulatingFactors.map((factor, i) => (
+                        <li key={i} className="flex items-center gap-3">
+                          <span className="w-3 h-3 rounded-full bg-red-500 shrink-0 shadow-sm shadow-red-300"></span>
+                          <span className="text-slate-700 text-base font-bold">{factor}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {analysisResult.bonusMinutes > 0 && (
+                      <div className="mt-4 px-4 py-2 bg-red-50 rounded-2xl border border-red-100">
+                        <p className="text-red-500 text-sm font-bold">
+                          ⚠️ 자극 요소로 인해 소화 시간 +{analysisResult.bonusMinutes}분 추가됐어요
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <div className="p-4 bg-white rounded-2xl border border-slate-100 text-slate-500 text-sm leading-relaxed">
-                    {analysisResult.reason}
+                ) : (
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="w-3 h-3 rounded-full bg-green-400 shrink-0"></span>
+                    <p className="text-slate-500 text-base font-bold">자극 요소 없음</p>
                   </div>
+                )}
+
+                <div className="p-4 bg-white rounded-2xl border border-slate-100 text-slate-500 text-sm leading-relaxed">
+                  {analysisResult.reason}
                 </div>
               </div>
               
-              <div className="flex flex-col items-center justify-center py-6">
+              <div className="flex flex-col items-center justify-center py-4">
                 <div 
                   onClick={handleTimerClick}
-                  className="text-6xl text-slate-900 mb-10 tracking-tighter font-black cursor-pointer active:scale-95 transition-transform"
+                  className="text-6xl text-slate-900 mb-8 tracking-tighter font-black cursor-pointer active:scale-95 transition-transform"
                 >
                   {formatTime(timeLeft)}
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 mb-8 overflow-hidden">
-                    <div 
-                      className="bg-blue-600 h-full transition-all duration-1000"
-                      style={{ width: `${(timeLeft / (analysisResult.calculatedTime || 3600)) * 100}%` }}
-                    ></div>
+                  <div 
+                    className="bg-blue-600 h-full transition-all duration-1000"
+                    style={{ width: `${(timeLeft / (analysisResult.calculatedTime || 3600)) * 100}%` }}
+                  ></div>
                 </div>
                 <button 
                   onClick={isActive ? null : () => startTimer(timeLeft)}
