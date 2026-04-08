@@ -1,0 +1,18 @@
+{
+  "name": "눕지마요 - 소화 안심 타이머",
+  "short_name": "눕지마요",
+  "description": "식사 후 소화 시간을 AI로 분석하는 타이머 앱",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
