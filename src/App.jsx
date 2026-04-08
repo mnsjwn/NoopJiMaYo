@@ -65,7 +65,7 @@ const App = () => {
 
     audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
     
-    if ("Notification" in window && Notification.permission !== "denied") {
+    if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
 
@@ -239,6 +239,11 @@ const App = () => {
       return;
     }
 
+    // 모바일은 사용자 제스처(버튼 클릭) 시점에 권한 요청해야 작동함
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+
     setStep('ANALYZING');
 
     try {
@@ -338,6 +343,13 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
       setShowAdminModal(false);
       setAdminPassword('');
       finishTimer();
+    } else if (adminPassword === '0000') {
+      // 타이머 1분으로 줄이기
+      const newEndTime = Date.now() + 60 * 1000;
+      localStorage.setItem('noopjimayo_endtime', newEndTime.toString());
+      setTimeLeft(60);
+      setShowAdminModal(false);
+      setAdminPassword('');
     } else {
       setAdminPassword('');
     }
