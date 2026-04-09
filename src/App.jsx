@@ -195,19 +195,17 @@ const App = () => {
   };
 
   const finishTimer = () => {
-    setIsActive(false);
-    setTimeLeft(0);
     clearInterval(timerRef.current);
     localStorage.removeItem('noopjimayo_endtime');
-    // 소리
-    if (audioRef.current) {
-      audioRef.current.play().catch(e => console.log("Audio play failed:", e));
-    }
-    // 진동 (모바일 대응) — 0.3초 진동 3번
+    playAlarm();
     if ("vibrate" in navigator) {
       navigator.vibrate([300, 200, 300, 200, 300]);
     }
-    sendNotification();
+    if (Notification.permission === "granted") {
+      new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+    }
+    setIsActive(false);
+    setTimeLeft(0);
     setStep('FINISHED');
   };
 
@@ -479,12 +477,19 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
                 if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
                   await audioContextRef.current.resume();
                 }
-                // iOS 오디오 unlock용 무음 재생
-                if (audioRef.current) {
-                  audioRef.current.muted = true;
-                  audioRef.current.play().catch(() => {});
-                  setTimeout(() => { if (audioRef.current) audioRef.current.muted = false; }, 100);
-                }
+                // iOS Web Audio unlock용 무음 비프 (소리 없이 컨텍스트만 활성화)
+                try {
+                  const ctx = audioContextRef.current;
+                  if (ctx) {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    gain.gain.setValueAtTime(0, ctx.currentTime); // 볼륨 0 = 무음
+                    osc.start(ctx.currentTime);
+                    osc.stop(ctx.currentTime + 0.001);
+                  }
+                } catch(e) {}
                 setStep('UPLOAD');
               }}
               className="w-full bg-blue-600 text-white text-2xl py-6 rounded-[2rem] shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 transition-all active:scale-95"
