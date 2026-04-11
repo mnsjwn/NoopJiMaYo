@@ -466,7 +466,7 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
                 </div>
               </div>
               <h1 className="text-6xl text-slate-900 mb-4 tracking-tighter">눕지마요</h1>
-              <p className="text-slate-400 text-xl font-bold italic">"소화 안심 타이머"</p>
+              <p className="text-slate-400 text-xl font-bold">소화 안심 타이머</p>
             </div>
             <button 
               onClick={async () => {
@@ -669,7 +669,7 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
               </div>
               <h2 className="text-5xl text-slate-900 mb-6 font-black tracking-tight">이제 누워도 안심!</h2>
               <p className="text-slate-500 text-2xl font-bold leading-relaxed">
-                충분한 소화 시간이 지났습니다.<br/>편안하게 휴식을 취하세요. 😊
+                충분한 소화 시간이 지났습니다.<br/>편한 휴식 ㄱㄱ
               </p>
             </div>
             <button 
