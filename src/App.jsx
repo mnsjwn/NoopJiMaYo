@@ -47,17 +47,9 @@ const App = () => {
   const audioContextRef = useRef(null);
   const analyzingTimerRef = useRef(null);
 
-  const getApiKey = () => {
-    try {
-      const viteEnv = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
-      const env = (typeof process !== 'undefined' && process.env) || {};
-      const envKey = viteEnv.VITE_GROQ_API_KEY || env.VITE_GROQ_API_KEY;
-      if (envKey) return envKey;
-    } catch (e) {}
-    return localStorage.getItem('TEMP_GROQ_KEY') || "";
-  };
-
-  const GROQ_API_KEY = getApiKey();
+  // 프록시 사용 여부: 배포 환경에서는 /api/analyze, 로컬에서는 Groq 직접 호출
+  const useProxy = !import.meta.env.VITE_GROQ_API_KEY;
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || localStorage.getItem('TEMP_GROQ_KEY') || "";
 
   useEffect(() => {
     const link = document.createElement('link');
@@ -154,31 +146,50 @@ const App = () => {
     startTimer(finalSeconds);
   };
 
+  // 타이머 만료 체크 함수 (interval + visibilitychange 공용)
+  const checkTimerExpiry = () => {
+    const savedEndTime = localStorage.getItem('noopjimayo_endtime');
+    if (!savedEndTime) return;
+    const remaining = Math.floor((parseInt(savedEndTime) - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(timerRef.current);
+      setIsActive(false);
+      setTimeLeft(0);
+      localStorage.removeItem('noopjimayo_endtime');
+      playAlarm();
+      if ("vibrate" in navigator) {
+        navigator.vibrate([300, 200, 300, 200, 300]);
+      }
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+      }
+      setStep('FINISHED');
+    } else {
+      setTimeLeft(remaining);
+    }
+  };
+
   useEffect(() => {
     if (!isActive) return;
     clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      const savedEndTime = localStorage.getItem('noopjimayo_endtime');
-      if (!savedEndTime) return;
-      const remaining = Math.floor((parseInt(savedEndTime) - Date.now()) / 1000);
-      if (remaining <= 0) {
-        clearInterval(timerRef.current);
-        setIsActive(false);
-        setTimeLeft(0);
-        localStorage.removeItem('noopjimayo_endtime');
-        playAlarm();
-        if ("vibrate" in navigator) {
-          navigator.vibrate([300, 200, 300, 200, 300]);
-        }
-        if (Notification.permission === "granted") {
-          new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
-        }
-        setStep('FINISHED');
-      } else {
-        setTimeLeft(remaining);
+    timerRef.current = setInterval(checkTimerExpiry, 1000);
+
+    // iOS 백그라운드 복귀 시 즉시 만료 체크
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkTimerExpiry();
       }
-    }, 1000);
-    return () => clearInterval(timerRef.current);
+    };
+    const handleFocus = () => checkTimerExpiry();
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(timerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [isActive]);
 
   const startTimer = (seconds) => {
@@ -201,7 +212,7 @@ const App = () => {
     if ("vibrate" in navigator) {
       navigator.vibrate([300, 200, 300, 200, 300]);
     }
-    if (Notification.permission === "granted") {
+    if ("Notification" in window && Notification.permission === "granted") {
       new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
     }
     setIsActive(false);
@@ -234,14 +245,6 @@ const App = () => {
       if (audioRef.current) {
         audioRef.current.play().catch(err => console.log("Audio play failed:", err));
       }
-    }
-  };
-
-  const sendNotification = () => {
-    if (Notification.permission === "granted") {
-      new Notification("눕지마요 알림", {
-        body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊"
-      });
     }
   };
 
@@ -283,7 +286,7 @@ const App = () => {
   const startAnalysis = async () => {
     if (!base64Image) return;
 
-    if (!GROQ_API_KEY) {
+    if (!useProxy && !GROQ_API_KEY) {
       const manualKey = prompt("API 키가 설정되지 않았습니다. 여기에 입력하세요:");
       if (manualKey) {
         localStorage.setItem('TEMP_GROQ_KEY', manualKey);
@@ -295,12 +298,15 @@ const App = () => {
     setStep('ANALYZING');
 
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const apiUrl = useProxy ? "/api/analyze" : "https://api.groq.com/openai/v1/chat/completions";
+      const headers = { "Content-Type": "application/json" };
+      if (!useProxy) {
+        headers["Authorization"] = `Bearer ${GROQ_API_KEY}`;
+      }
+
+      const response = await fetch(apiUrl, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify({
           model: "meta-llama/llama-4-scout-17b-16e-instruct",
           messages: [
