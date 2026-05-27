@@ -47,8 +47,9 @@ const App = () => {
   const audioContextRef = useRef(null);
   const analyzingTimerRef = useRef(null);
 
-  // 프록시 사용 여부: 배포 환경에서는 /api/analyze, 로컬에서는 Groq 직접 호출
-  const useProxy = !import.meta.env.VITE_GROQ_API_KEY;
+  // 프록시 사용 여부: 로컬(localhost)에서만 Groq 직접 호출, 배포 환경에서는 항상 /api/analyze 프록시
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const useProxy = !isLocal;
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || localStorage.getItem('TEMP_GROQ_KEY') || "";
 
   useEffect(() => {
