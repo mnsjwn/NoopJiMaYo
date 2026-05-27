@@ -478,7 +478,7 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
             <button 
               onClick={async () => {
                 if ("Notification" in window && Notification.permission === "default") {
-                  await Notification.requestPermission();
+                  Notification.requestPermission();
                 }
                 // iOS AudioContext unlock — 반드시 사용자 제스처 시점에 resume
                 if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
