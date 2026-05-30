@@ -253,18 +253,23 @@ const App = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const supportedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    const needsConversion = !supportedTypes.includes(file.type);
-
-    const convertToJpeg = (src) => {
+    // 이미지를 최대 1024px로 리사이즈 + JPEG 변환 (Safari 대용량 fetch 오류 방지)
+    const resizeAndConvert = (src) => {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
+          const MAX_SIZE = 1024;
+          let w = img.width;
+          let h = img.height;
+          if (w > MAX_SIZE || h > MAX_SIZE) {
+            if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+            else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+          }
           const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          resolve(canvas.toDataURL('image/jpeg', 0.9));
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
         };
         img.src = src;
       });
@@ -274,12 +279,9 @@ const App = () => {
     reader.onloadend = async () => {
       const originalDataUrl = reader.result;
       setImage(originalDataUrl);
-      if (needsConversion) {
-        const jpegDataUrl = await convertToJpeg(originalDataUrl);
-        setBase64Image({ data: jpegDataUrl.split(',')[1], mimeType: 'image/jpeg' });
-      } else {
-        setBase64Image({ data: originalDataUrl.split(',')[1], mimeType: file.type });
-      }
+      // 모든 이미지를 리사이즈 + JPEG 변환 (API 전송용)
+      const jpegDataUrl = await resizeAndConvert(originalDataUrl);
+      setBase64Image({ data: jpegDataUrl.split(',')[1], mimeType: 'image/jpeg' });
     };
     reader.readAsDataURL(file);
   };
