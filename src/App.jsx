@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  BellRing, 
-  ChevronRight, 
-  Upload, 
-  Home, 
-  AlertTriangle, 
-  X, 
-  ShieldCheck
+import {
+  BellRing,
+  ChevronRight,
+  Upload,
+  Home,
+  AlertTriangle,
+  X,
+  ShieldCheck,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 const ANALYZING_STEPS = [
@@ -41,6 +43,10 @@ const App = () => {
   const [adminClickCount, setAdminClickCount] = useState(0);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
+  const [alarmEnabled, setAlarmEnabled] = useState(() => {
+    const saved = localStorage.getItem('noopjimayo_alarm');
+    return saved !== null ? saved === 'true' : true; // 기본값: ON
+  });
   
   const timerRef = useRef(null);
   const audioRef = useRef(null);
@@ -169,12 +175,15 @@ const App = () => {
       setIsActive(false);
       setTimeLeft(0);
       localStorage.removeItem('noopjimayo_endtime');
-      playAlarm();
-      if ("vibrate" in navigator) {
-        navigator.vibrate([300, 200, 300, 200, 300]);
-      }
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+      const isAlarmOn = localStorage.getItem('noopjimayo_alarm') !== 'false';
+      if (isAlarmOn) {
+        playAlarm();
+        if ("vibrate" in navigator) {
+          navigator.vibrate([300, 200, 300, 200, 300]);
+        }
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+        }
       }
       setStep('FINISHED');
     } else {
@@ -218,15 +227,23 @@ const App = () => {
     setEndTimeDisplay(`${ampm} ${displayH}시 ${m}분`);
   };
 
+  const toggleAlarm = () => {
+    const next = !alarmEnabled;
+    setAlarmEnabled(next);
+    localStorage.setItem('noopjimayo_alarm', next.toString());
+  };
+
   const finishTimer = () => {
     clearInterval(timerRef.current);
     localStorage.removeItem('noopjimayo_endtime');
-    playAlarm();
-    if ("vibrate" in navigator) {
-      navigator.vibrate([300, 200, 300, 200, 300]);
-    }
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+    if (alarmEnabled) {
+      playAlarm();
+      if ("vibrate" in navigator) {
+        navigator.vibrate([300, 200, 300, 200, 300]);
+      }
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("눕지마요 알림", { body: "소화 시간이 끝났습니다! 이제 누워도 됩니다. 😊" });
+      }
     }
     setIsActive(false);
     setTimeLeft(0);
@@ -502,6 +519,20 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
               <h1 className="text-6xl text-slate-900 mb-4 tracking-tighter">눕지마요</h1>
               <p className="text-slate-400 text-xl font-bold">소화 안심 타이머</p>
             </div>
+            <button
+              onClick={toggleAlarm}
+              className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl mb-4 transition-all border-2 ${alarmEnabled ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}
+            >
+              <div className="flex items-center gap-3">
+                {alarmEnabled ? <Volume2 size={22} className="text-blue-600" /> : <VolumeX size={22} className="text-slate-400" />}
+                <span className={`text-lg font-bold ${alarmEnabled ? 'text-blue-600' : 'text-slate-400'}`}>
+                  알람 (소리 · 진동 · 알림)
+                </span>
+              </div>
+              <div className={`w-12 h-7 rounded-full relative transition-colors ${alarmEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${alarmEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </div>
+            </button>
             <button 
               onClick={async () => {
                 if ("Notification" in window && Notification.permission === "default") {
