@@ -53,11 +53,6 @@ const App = () => {
   const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || localStorage.getItem('TEMP_GROQ_KEY') || "";
 
   useEffect(() => {
-    const link = document.createElement('link');
-    link.href = 'https://fonts.googleapis.com/css2?family=Jua&display=swap';
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-
     audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
     // Web Audio API 컨텍스트 생성 (iOS 대응)
@@ -74,6 +69,21 @@ const App = () => {
         setTimeLeft(remaining);
         setIsActive(true);
         setStep('RESULT');
+        // endTimeDisplay 복구
+        const endDate = new Date(parseInt(savedEndTime));
+        const h = endDate.getHours();
+        const m = endDate.getMinutes().toString().padStart(2, '0');
+        const ampm = h >= 12 ? '오후' : '오전';
+        const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h;
+        setEndTimeDisplay(`${ampm} ${displayH}시 ${m}분`);
+        // analysisResult 복구
+        const savedResult = localStorage.getItem('noopjimayo_result');
+        if (savedResult) {
+          try { setAnalysisResult(JSON.parse(savedResult)); } catch(e) {}
+        }
+      } else {
+        localStorage.removeItem('noopjimayo_endtime');
+        localStorage.removeItem('noopjimayo_result');
       }
     }
   }, []);
@@ -140,7 +150,9 @@ const App = () => {
     let finalMinutes = Math.max(aiMinutes, baseMinutes) + bonusMinutes;
     let finalSeconds = finalMinutes * 60;
 
-    setAnalysisResult({ ...aiData, calculatedTime: finalSeconds, bonusMinutes });
+    const resultData = { ...aiData, calculatedTime: finalSeconds, bonusMinutes };
+    setAnalysisResult(resultData);
+    localStorage.setItem('noopjimayo_result', JSON.stringify(resultData));
     setTimeLeft(finalSeconds);
     clearInterval(analyzingTimerRef.current);
     setStep('RESULT');
@@ -255,8 +267,9 @@ const App = () => {
 
     // 이미지를 최대 1024px로 리사이즈 + JPEG 변환 (Safari 대용량 fetch 오류 방지)
     const resizeAndConvert = (src) => {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const img = new Image();
+        img.onerror = () => reject(new Error('이미지 로드 실패'));
         img.onload = () => {
           const MAX_SIZE = 1024;
           let w = img.width;
@@ -280,8 +293,14 @@ const App = () => {
       const originalDataUrl = reader.result;
       setImage(originalDataUrl);
       // 모든 이미지를 리사이즈 + JPEG 변환 (API 전송용)
-      const jpegDataUrl = await resizeAndConvert(originalDataUrl);
-      setBase64Image({ data: jpegDataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      try {
+        const jpegDataUrl = await resizeAndConvert(originalDataUrl);
+        setBase64Image({ data: jpegDataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      } catch(e) {
+        alert('이미지를 불러올 수 없습니다. 다른 사진을 선택해주세요.');
+        setImage(null);
+        setBase64Image(null);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -318,10 +337,10 @@ const App = () => {
               content: [
                 {
                   type: "text",
-                  text: `너는 한국 음식 전문가야. 이 식사 사진을 분석해줘. 한국 음식일 가능성을 최우선으로 고려해서 음식 이름을 판단해. 예를 들어 빨간 떡볶이처럼 보이면 "떡볶이"로, 빨간 국물에 떡이 있으면 "엽기떡볶이" 또는 "떡볶이"로 인식해. 반드시 아래 형식의 JSON만 반환해. 다른 말은 절대 하지 마. 마크다운 코드블록도 쓰지 마.
+                  text: `너는 한국 음식 전문가야. 이 식사 사진을 분석해줘. 사진에 보이는 모든 음식을 각각 인식해. 한국 음식일 가능성을 최우선으로 고려해서 음식 이름을 판단해. 예를 들어 빨간 떡볶이처럼 보이면 "떡볶이"로, 빨간 국물에 떡이 있으면 "엽기떡볶이" 또는 "떡볶이"로 인식해. 반드시 아래 형식의 JSON만 반환해. 다른 말은 절대 하지 마. 마크다운 코드블록도 쓰지 마.
 {
-  "mealName": "음식 이름",
-  "detectedItems": ["재료1", "재료2"],
+  "mealName": "대표 음식 이름 (가장 메인인 음식 하나)",
+  "detectedItems": ["음식1", "음식2", "음식3"],
   "stimulatingFactors": ["자극 요소1", "자극 요소2"],
   "baseTimeMinutes": 90,
   "reason": "이유 설명"
@@ -337,6 +356,8 @@ stimulatingFactors는 아래 항목에 해당하는 것만 포함해. 일반 재
 - 탄산음료
 - 지방 함량이 매우 높은 가공식품 (소시지, 베이컨 등)
 위 항목에 해당하지 않으면 stimulatingFactors는 반드시 빈 배열 []로 반환해.
+detectedItems에는 사진에서 보이는 모든 음식의 이름을 각각 넣어. 재료가 아니라 음식 이름이어야 해. 예: ["떡볶이", "순대", "튀김", "어묵"]. 음식이 하나뿐이면 하나만 넣어.
+stimulatingFactors는 모든 음식을 종합해서 판단해.
 reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소가 없으면 reason에도 없다고 써.
 위염/역류성 식도염 환자라면 baseTimeMinutes는 최소 150, 일반인은 최소 60.`
                 },
@@ -371,13 +392,16 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
     } catch (error) {
       console.error("분석 오류:", error);
       const fallbackSeconds = hasCondition ? 9000 : 3600;
-      setAnalysisResult({
+      const fallbackResult = {
         mealName: "식사 분석 완료",
+        detectedItems: [],
         stimulatingFactors: [],
         calculatedTime: fallbackSeconds,
         bonusMinutes: 0,
         reason: `오류: ${error.message} — 안전한 소화를 위해 기본 대기 시간을 설정합니다.`
-      });
+      };
+      setAnalysisResult(fallbackResult);
+      localStorage.setItem('noopjimayo_result', JSON.stringify(fallbackResult));
       setTimeLeft(fallbackSeconds);
       setStep('RESULT');
       startTimer(fallbackSeconds);
@@ -441,6 +465,7 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
     setPendingResult(null);
     setRevealedFactors([]);
     localStorage.removeItem('noopjimayo_endtime');
+    localStorage.removeItem('noopjimayo_result');
     if (timerRef.current) clearInterval(timerRef.current);
     if (analyzingTimerRef.current) clearInterval(analyzingTimerRef.current);
   };
@@ -599,12 +624,21 @@ reason은 stimulatingFactors 내용과 반드시 일치해야 해. 자극 요소
             </div>
             <div className="px-8 flex-1">
               <div className="bg-slate-50 rounded-[2.5rem] p-8 mb-6 shadow-sm">
-                <div className="flex justify-between items-start mb-5">
+                <div className="flex justify-between items-start mb-3">
                   <h3 className="text-2xl text-slate-900 font-black leading-tight">{analysisResult.mealName || "분석 완료"}</h3>
                   <span className={`px-4 py-1 rounded-full text-sm font-bold shrink-0 ml-2 ${hasCondition ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                     {hasCondition ? '질환 모드' : '일반 모드'}
                   </span>
                 </div>
+                {analysisResult.detectedItems?.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-5">
+                    {analysisResult.detectedItems.map((item, i) => (
+                      <span key={i} className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-sm font-bold">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {/* 자극 요소 빨간점 리스트 */}
                 {analysisResult.stimulatingFactors?.length > 0 ? (
